@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+requests
+fastapi-utils
+pytz
+s
