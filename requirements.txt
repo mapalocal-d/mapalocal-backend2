@@ -2,5 +2,7 @@ fastapi
 uvicorn
 requests
 fastapi-utils
+typing-inspect
 pytz
-s
+
+
