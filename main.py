@@ -3,14 +3,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional
 import jwt
 import pytz
 
 # =========================
 # CONFIGURACIÓN
 # =========================
-
 CLAVE_SECRETA = "MAPALOCAL_CAMBIAR_LUEGO"
 ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
@@ -25,7 +24,6 @@ zona_chile = pytz.timezone("America/Santiago")
 # =========================
 # BASES DE DATOS (MEMORIA)
 # =========================
-
 usuarios_db = {}
 locales_db = {}   # clave: correo dueño
 ofertas_db = {}   # clave: correo dueño
@@ -33,18 +31,15 @@ ofertas_db = {}   # clave: correo dueño
 # =========================
 # MODELOS
 # =========================
-
 class UsuarioRegistro(BaseModel):
     correo: EmailStr
     nombre: str
     contrasena: str
     rol: str  # DUENO / USUARIO
 
-
 class Token(BaseModel):
     access_token: str
     token_type: str
-
 
 class LocalCrear(BaseModel):
     nombre: str
@@ -55,32 +50,26 @@ class LocalCrear(BaseModel):
     hora_apertura: Optional[str] = None
     hora_cierre: Optional[str] = None
 
-
 class OfertaCrear(BaseModel):
     titulo: str
     precio: str
     descripcion: str
     imagen_url: str
 
-
 # =========================
 # UTILIDADES
 # =========================
-
 def encriptar(contrasena: str):
+    # bcrypt no admite más de 72 bytes
     return encriptador.hash(contrasena[:72])
-
-
 
 def verificar(contrasena: str, hash_guardado: str):
     return encriptador.verify(contrasena, hash_guardado)
-
 
 def crear_token(datos: dict):
     datos = datos.copy()
     datos["exp"] = datetime.utcnow() + timedelta(minutes=MINUTOS_TOKEN)
     return jwt.encode(datos, CLAVE_SECRETA, algorithm=ALGORITMO)
-
 
 def usuario_actual(token: str = Depends(oauth2)):
     try:
@@ -89,13 +78,11 @@ def usuario_actual(token: str = Depends(oauth2)):
     except:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-
 def abierto_por_horario(local):
     ahora = datetime.now(zona_chile).time()
     inicio = datetime.strptime(local["hora_apertura"], "%H:%M").time()
     fin = datetime.strptime(local["hora_cierre"], "%H:%M").time()
     return inicio <= ahora <= fin
-
 
 def oferta_activa():
     ahora = datetime.now(zona_chile)
@@ -105,7 +92,6 @@ def oferta_activa():
 # =========================
 # AUTH
 # =========================
-
 @app.post("/auth/registro")
 def registro(usuario: UsuarioRegistro):
     if usuario.correo in usuarios_db:
@@ -120,7 +106,6 @@ def registro(usuario: UsuarioRegistro):
 
     return {"mensaje": "Usuario creado"}
 
-
 @app.post("/auth/login", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends()):
     usuario = usuarios_db.get(form.username)
@@ -134,7 +119,6 @@ def login(form: OAuth2PasswordRequestForm = Depends()):
 # =========================
 # LOCALES (DUEÑO)
 # =========================
-
 @app.post("/local/crear")
 def crear_local(data: LocalCrear, user=Depends(usuario_actual)):
     if user["rol"] != "DUENO":
@@ -148,7 +132,6 @@ def crear_local(data: LocalCrear, user=Depends(usuario_actual)):
 
     return {"mensaje": "Local creado"}
 
-
 @app.post("/local/manual/{estado}")
 def modo_manual(estado: str, user=Depends(usuario_actual)):
     local = locales_db[user["correo"]]
@@ -156,11 +139,9 @@ def modo_manual(estado: str, user=Depends(usuario_actual)):
     local["abierto"] = estado == "ABRIR"
     return {"mensaje": "Estado actualizado"}
 
-
 # =========================
 # OFERTAS (DUEÑO)
 # =========================
-
 @app.post("/oferta/crear")
 def crear_oferta(oferta: OfertaCrear, user=Depends(usuario_actual)):
     if user["rol"] != "DUENO":
@@ -176,7 +157,6 @@ def crear_oferta(oferta: OfertaCrear, user=Depends(usuario_actual)):
 # =========================
 # MAPA (USUARIOS)
 # =========================
-
 @app.get("/mapa/locales")
 def ver_locales(ciudad: str, categoria: str):
     resultados = []
