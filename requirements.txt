@@ -1,12 +1,13 @@
 fastapi
 uvicorn
-python-jose
+PyJWT
 passlib[bcrypt]
-sqlalchemy
-psycopg2-binary
+bcrypt
 python-multipart
+pydantic
 email-validator
 pytz
+
 
 
 
