@@ -1,8 +1,10 @@
-fastapi
-uvicorn
-requests
-fastapi-utils
-typing-inspect
-pytz
+fastapi==0.111.1
+uvicorn[standard]==0.23.2
+requests==2.32.1
+fastapi-utils==0.8.0
+pyjwt==2.9.0
+passlib[bcrypt]==1.8.1
+pytz==2026.1
+
 
 
