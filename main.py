@@ -68,7 +68,8 @@ class OfertaCrear(BaseModel):
 # =========================
 
 def encriptar(contrasena: str):
-    return encriptador.hash(contrasena)
+    return encriptador.hash(contrasena[:72])
+
 
 
 def verificar(contrasena: str, hash_guardado: str):
