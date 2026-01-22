@@ -1,15 +1,11 @@
 fastapi
-uvicorn[standard]
-
+uvicorn
 passlib[bcrypt]==1.7.4
 bcrypt>=4.0.1
-
-python-jwt
-pytz
+PyJWT==2.8.0
+pytz==2025.2
 email-validator
 python-multipart
-
-PyJW
 
 
 
