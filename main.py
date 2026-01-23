@@ -6,8 +6,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 import pytz
-from database import engine
-from models import Base
+
+from sqlalchemy.orm import Session
+from database import engine, get_db, Base
+import models
 
 # =========================
 # CONFIGURACIÓN
@@ -17,22 +19,16 @@ ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
 
 app = FastAPI(title="MapaLocal Backend")
+
+# CREA TABLAS EN SUPABASE
 Base.metadata.create_all(bind=engine)
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="auth/login")
 encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 zona_chile = pytz.timezone("America/Santiago")
 
 # =========================
-# BASES DE DATOS (MEMORIA)
-# =========================
-usuarios_db = {}
-locales_db = {}   # clave: correo dueño
-ofertas_db = {}   # clave: correo dueño
-
-# =========================
-# MODELOS
+# MODELOS Pydantic
 # =========================
 class UsuarioRegistro(BaseModel):
     correo: EmailStr
@@ -63,7 +59,6 @@ class OfertaCrear(BaseModel):
 # UTILIDADES
 # =========================
 def encriptar(contrasena: str):
-    # bcrypt no admite más de 72 bytes
     return encriptador.hash(contrasena[:72])
 
 def verificar(contrasena: str, hash_guardado: str):
@@ -74,130 +69,65 @@ def crear_token(datos: dict):
     datos["exp"] = datetime.utcnow() + timedelta(minutes=MINUTOS_TOKEN)
     return jwt.encode(datos, CLAVE_SECRETA, algorithm=ALGORITMO)
 
-def usuario_actual(token: str = Depends(oauth2)):
+def usuario_actual(
+    token: str = Depends(oauth2),
+    db: Session = Depends(get_db)
+):
     try:
         datos = jwt.decode(token, CLAVE_SECRETA, algorithms=[ALGORITMO])
         correo = datos.get("sub")
-        if correo not in usuarios_db:
+
+        usuario = db.query(models.Usuario).filter(
+            models.Usuario.correo == correo
+        ).first()
+
+        if not usuario:
             raise HTTPException(status_code=401, detail="Token inválido")
-        return usuarios_db[correo]
+
+        return usuario
+
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expirado")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-def abierto_por_horario(local):
-    try:
-        ahora = datetime.now(zona_chile).time()
-        inicio = datetime.strptime(local["hora_apertura"], "%H:%M").time()
-        fin = datetime.strptime(local["hora_cierre"], "%H:%M").time()
-        return inicio <= ahora <= fin
-    except:
-        return False
-
-def oferta_activa(oferta):
-    # Opcional: podemos agregar fecha fin específica
-    return True
-
 # =========================
 # AUTH
 # =========================
 @app.post("/auth/registro")
-def registro(usuario: UsuarioRegistro):
+def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
     correo = usuario.correo.lower()
-    if correo in usuarios_db:
+
+    existe = db.query(models.Usuario).filter(
+        models.Usuario.correo == correo
+    ).first()
+
+    if existe:
         raise HTTPException(status_code=400, detail="Usuario ya existe")
-    
-    usuarios_db[correo] = {
-        "correo": correo,
-        "nombre": usuario.nombre,
-        "contrasena": encriptar(usuario.contrasena),
-        "rol": usuario.rol.upper()
-    }
+
+    nuevo = models.Usuario(
+        correo=correo,
+        nombre=usuario.nombre,
+        contrasena=encriptar(usuario.contrasena),
+        rol=usuario.rol.upper()
+    )
+
+    db.add(nuevo)
+    db.commit()
 
     return {"mensaje": "Usuario creado"}
 
 @app.post("/auth/login", response_model=Token)
-def login(form: OAuth2PasswordRequestForm = Depends()):
-    correo = form.username.lower()
-    usuario = usuarios_db.get(correo)
+def login(
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    usuario = db.query(models.Usuario).filter(
+        models.Usuario.correo == form.username.lower()
+    ).first()
 
-    if not usuario or not verificar(form.password, usuario["contrasena"]):
+    if not usuario or not verificar(form.password, usuario.contrasena):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    token = crear_token({"sub": usuario["correo"], "rol": usuario["rol"]})
+    token = crear_token({"sub": usuario.correo, "rol": usuario.rol})
     return {"access_token": token, "token_type": "bearer"}
-
-# =========================
-# LOCALES (DUEÑO)
-# =========================
-@app.post("/local/crear")
-def crear_local(data: LocalCrear, user=Depends(usuario_actual)):
-    if user["rol"] != "DUENO":
-        raise HTTPException(status_code=403, detail="Solo dueños pueden crear locales")
-
-    locales_db[user["correo"]] = {
-        **data.dict(),
-        "modo": "AUTO",
-        "abierto": False
-    }
-
-    return {"mensaje": "Local creado"}
-
-@app.post("/local/manual/{estado}")
-def modo_manual(estado: str, user=Depends(usuario_actual)):
-    if user["correo"] not in locales_db:
-        raise HTTPException(status_code=404, detail="No tienes local registrado")
-    
-    local = locales_db[user["correo"]]
-    local["modo"] = "MANUAL"
-    local["abierto"] = estado.upper() == "ABRIR"
-    return {"mensaje": f"Estado actualizado a {local['abierto']}"}
-
-# =========================
-# OFERTAS (DUEÑO)
-# =========================
-@app.post("/oferta/crear")
-def crear_oferta(oferta: OfertaCrear, user=Depends(usuario_actual)):
-    if user["rol"] != "DUENO":
-        raise HTTPException(status_code=403, detail="Solo dueños pueden crear ofertas")
-
-    ofertas_db[user["correo"]] = {
-        "oferta": oferta.dict(),
-        "fecha": datetime.now(zona_chile)
-    }
-
-    return {"mensaje": "Oferta publicada"}
-
-# =========================
-# MAPA (USUARIOS)
-# =========================
-@app.get("/mapa/locales")
-def ver_locales(ciudad: str, categoria: str):
-    resultados = []
-
-    for correo, local in locales_db.items():
-        abierto = local["abierto"]
-
-        if local["modo"] == "AUTO" and local.get("hora_apertura"):
-            abierto = abierto_por_horario(local)
-
-        if not abierto:
-            continue
-
-        if local["ciudad"].lower() != ciudad.lower() or local["categoria"].lower() != categoria.lower():
-            continue
-
-        oferta = None
-        if correo in ofertas_db and oferta_activa(ofertas_db[correo]):
-            oferta = ofertas_db[correo]["oferta"]
-
-        resultados.append({
-            "nombre": local["nombre"],
-            "categoria": local["categoria"],
-            "latitud": local["latitud"],
-            "longitud": local["longitud"],
-            "oferta": oferta
-        })
-
-    return resultados
