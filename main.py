@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 import pytz
+from database import engine
+from models import Base
 
 # =========================
 # CONFIGURACIÓN
@@ -15,6 +17,7 @@ ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
 
 app = FastAPI(title="MapaLocal Backend")
+Base.metadata.create_all(bind=engine)
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="auth/login")
 encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
