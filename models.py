@@ -1,11 +1,10 @@
+# models.py
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from database import Base
 
-# =========================
-# USUARIOS
-# =========================
+from database import Base   # 👈 IMPORTANTE
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
@@ -19,9 +18,6 @@ class Usuario(Base):
     locales = relationship("Local", back_populates="dueno")
 
 
-# =========================
-# LOCALES
-# =========================
 class Local(Base):
     __tablename__ = "locales"
 
@@ -40,9 +36,6 @@ class Local(Base):
     dueno = relationship("Usuario", back_populates="locales")
 
 
-# =========================
-# OFERTAS
-# =========================
 class Oferta(Base):
     __tablename__ = "ofertas"
 

@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 
-sqlalchemy
+sqlalchemy==2.0.25
 psycopg2-binary
 
 passlib==1.7.4
@@ -11,6 +11,7 @@ PyJWT==2.8.0
 pytz
 email-validator
 python-multipart
+python-dotenv
 
 
 
