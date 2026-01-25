@@ -49,7 +49,7 @@ encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
 zona_chile = pytz.timezone("America/Santiago")
 
 # =========================
-# MODELOS Pydantic (Validación de datos)
+# MODELOS Pydantic
 # =========================
 
 class UsuarioRegistro(BaseModel):
@@ -70,14 +70,14 @@ class LocalCrear(BaseModel):
     longitud: float
     hora_apertura: Optional[str] = "09:00"
     hora_cierre: Optional[str] = "20:00"
-    whatsapp: Optional[str] = None # <-- ARREGLADO: Ahora puedes enviar el número
+    whatsapp: Optional[str] = None
 
 class OfertaCrear(BaseModel):
     titulo: str
     precio: str
     descripcion: Optional[str] = None
     imagen_url: Optional[str] = None
-    local_id: int # <-- ARREGLADO: Obligatorio para conectar con el local
+    # local_id eliminado de aquí: ahora es automático
 
 # =========================
 # UTILIDADES
@@ -159,25 +159,32 @@ def crear_local(data: LocalCrear, user: Usuario = Depends(usuario_actual), db: S
     nuevo = Local(**data.dict(), dueno_id=user.id)
     db.add(nuevo)
     db.commit()
-    return {"mensaje": "Local creado"}
+    return {"mensaje": "Local creado correctamente"}
 
 @app.post("/oferta/crear")
 def crear_oferta(oferta: OfertaCrear, user: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
     if user.rol != "DUENO":
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
-    # Verificar que el local pertenezca al dueño
-    local = db.query(Local).filter(Local.id == oferta.local_id, Local.dueno_id == user.id).first()
-    if not local:
-        raise HTTPException(status_code=404, detail="El local no existe o no te pertenece")
-
-    # Limpiamos ofertas anteriores de este local específico
-    db.query(Oferta).filter(Oferta.local_id == oferta.local_id).delete()
+    # AUTOMATIZACIÓN: Buscamos el local que le pertenece a este dueño
+    local = db.query(Local).filter(Local.dueno_id == user.id).first()
     
-    nueva = Oferta(**oferta.dict(), dueno_id=user.id)
+    if not local:
+        raise HTTPException(status_code=404, detail="No tienes un local registrado para publicar ofertas")
+
+    # Limpiamos ofertas anteriores para que solo haya una vigente
+    db.query(Oferta).filter(Oferta.local_id == local.id).delete()
+    
+    # Creamos la oferta con la fecha actual de Chile
+    nueva = Oferta(
+        **oferta.dict(), 
+        dueno_id=user.id, 
+        local_id=local.id,
+        creada_en=datetime.now(zona_chile) 
+    )
     db.add(nueva)
     db.commit()
-    return {"mensaje": "Oferta publicada correctamente"}
+    return {"mensaje": f"Oferta para '{local.nombre}' publicada exitosamente"}
 
 # =========================
 # MAPA (VISIÓN PARA CLIENTES)
@@ -188,12 +195,17 @@ def ver_locales(ciudad: str, db: Session = Depends(get_db)):
     locales = db.query(Local).filter(Local.ciudad.ilike(f"%{ciudad}%")).all()
     resultados = []
 
+    # Obtener el inicio del día de hoy en Chile
+    hoy_inicio = datetime.now(zona_chile).replace(hour=0, minute=0, second=0, microsecond=0)
+
     for local in locales:
-        # Estado de apertura
         abierto = abierto_por_horario(local) if local.modo == "AUTO" else (local.abierto == 1)
 
-        # Buscar la oferta de este local específico
-        oferta = db.query(Oferta).filter(Oferta.local_id == local.id).first()
+        # FILTRO DE OFERTA DEL DÍA: Solo si fue creada hoy
+        oferta = db.query(Oferta).filter(
+            Oferta.local_id == local.id,
+            Oferta.creada_en >= hoy_inicio
+        ).first()
 
         resultados.append({
             "id": local.id,
@@ -208,7 +220,8 @@ def ver_locales(ciudad: str, db: Session = Depends(get_db)):
             "oferta": {
                 "titulo": oferta.titulo,
                 "precio": oferta.precio,
-                "descripcion": oferta.descripcion
+                "descripcion": oferta.descripcion,
+                "imagen": oferta.imagen_url
             } if oferta else None
         })
 
