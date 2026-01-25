@@ -1,3 +1,4 @@
+##main.py
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 import pytz
+import os
 
 from sqlalchemy.orm import Session
 
@@ -15,16 +17,24 @@ from models import Usuario, Local, Oferta
 # =========================
 # CONFIGURACIÓN
 # =========================
-CLAVE_SECRETA = "MAPALOCAL_CAMBIAR_LUEGO"
+
+CLAVE_SECRETA = os.getenv("SECRET_KEY", "MAPALOCAL_CAMBIAR_LUEGO")
 ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
 
 app = FastAPI(title="MapaLocal Backend")
 
-# 🔹 CREAR TABLAS AL ARRANCAR
+# =========================
+# CREAR TABLAS AL ARRANCAR
+# =========================
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+
+# =========================
+# SEGURIDAD
+# =========================
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
 encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -33,15 +43,18 @@ zona_chile = pytz.timezone("America/Santiago")
 # =========================
 # MODELOS Pydantic
 # =========================
+
 class UsuarioRegistro(BaseModel):
     correo: EmailStr
     nombre: str
     contrasena: str
-    rol: str
+    rol: str   # DUENO / USUARIO
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
 
 class LocalCrear(BaseModel):
     nombre: str
@@ -52,25 +65,30 @@ class LocalCrear(BaseModel):
     hora_apertura: Optional[str] = None
     hora_cierre: Optional[str] = None
 
+
 class OfertaCrear(BaseModel):
     titulo: str
     precio: str
-    descripcion: str
-    imagen_url: str
+    descripcion: Optional[str] = None
+    imagen_url: Optional[str] = None
 
 # =========================
 # UTILIDADES
 # =========================
-def encriptar(contrasena: str):
-    return encriptador.hash(contrasena[:72])
 
-def verificar(contrasena: str, hash_guardado: str):
-    return encriptador.verify(contrasena[:72], hash_guardado)
+def encriptar(password: str):
+    return encriptador.hash(password[:72])
+
+
+def verificar(password: str, hash_guardado: str):
+    return encriptador.verify(password[:72], hash_guardado)
+
 
 def crear_token(datos: dict):
     datos = datos.copy()
     datos["exp"] = datetime.utcnow() + timedelta(minutes=MINUTOS_TOKEN)
     return jwt.encode(datos, CLAVE_SECRETA, algorithm=ALGORITMO)
+
 
 def usuario_actual(
     token: str = Depends(oauth2),
@@ -91,8 +109,10 @@ def usuario_actual(
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expirado")
+
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
+
 
 def abierto_por_horario(local: Local):
     try:
@@ -106,8 +126,10 @@ def abierto_por_horario(local: Local):
 # =========================
 # AUTH
 # =========================
+
 @app.post("/auth/registro")
 def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
+
     correo = usuario.correo.lower()
 
     if db.query(Usuario).filter(Usuario.correo == correo).first():
@@ -123,13 +145,15 @@ def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
     db.add(nuevo)
     db.commit()
 
-    return {"mensaje": "Usuario creado"}
+    return {"mensaje": "Usuario creado correctamente"}
+
 
 @app.post("/auth/login", response_model=Token)
 def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+
     usuario = db.query(Usuario).filter(
         Usuario.correo == form.username.lower()
     ).first()
@@ -137,20 +161,122 @@ def login(
     if not usuario or not verificar(form.password, usuario.contrasena):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    token = crear_token({"sub": usuario.correo, "rol": usuario.rol})
+    token = crear_token({
+        "sub": usuario.correo,
+        "rol": usuario.rol
+    })
+
     return {"access_token": token, "token_type": "bearer"}
 
-
-
-
 # =========================
-# TEST PROTEGIDO
+# USUARIO LOGUEADO
 # =========================
+
 @app.get("/usuarios/me")
-def leer_usuario_actual(user: Usuario = Depends(usuario_actual)):
+def mi_usuario(user: Usuario = Depends(usuario_actual)):
     return {
         "id": user.id,
         "correo": user.correo,
         "nombre": user.nombre,
         "rol": user.rol
     }
+
+# =========================
+# LOCALES
+# =========================
+
+@app.post("/local/crear")
+def crear_local(
+    data: LocalCrear,
+    user: Usuario = Depends(usuario_actual),
+    db: Session = Depends(get_db)
+):
+
+    if user.rol != "DUENO":
+        raise HTTPException(status_code=403, detail="Solo dueños pueden crear locales")
+
+    nuevo = Local(
+        nombre=data.nombre,
+        categoria=data.categoria,
+        ciudad=data.ciudad,
+        latitud=data.latitud,
+        longitud=data.longitud,
+        hora_apertura=data.hora_apertura,
+        hora_cierre=data.hora_cierre,
+        dueno_id=user.id
+    )
+
+    db.add(nuevo)
+    db.commit()
+
+    return {"mensaje": "Local creado"}
+
+# =========================
+# OFERTAS
+# =========================
+
+@app.post("/oferta/crear")
+def crear_oferta(
+    oferta: OfertaCrear,
+    user: Usuario = Depends(usuario_actual),
+    db: Session = Depends(get_db)
+):
+
+    if user.rol != "DUENO":
+        raise HTTPException(status_code=403, detail="Solo dueños pueden crear ofertas")
+
+    nueva = Oferta(
+        titulo=oferta.titulo,
+        precio=oferta.precio,
+        descripcion=oferta.descripcion,
+        imagen_url=oferta.imagen_url,
+        dueno_id=user.id
+    )
+
+    db.add(nueva)
+    db.commit()
+
+    return {"mensaje": "Oferta publicada"}
+
+# =========================
+# MAPA
+# =========================
+
+@app.get("/mapa/locales")
+def ver_locales(ciudad: str, categoria: str, db: Session = Depends(get_db)):
+
+    locales = db.query(Local).filter(
+        Local.ciudad.ilike(ciudad),
+        Local.categoria.ilike(categoria)
+    ).all()
+
+    resultados = []
+
+    for local in locales:
+
+        abierto = local.abierto
+
+        if local.modo == "AUTO" and local.hora_apertura:
+            abierto = abierto_por_horario(local)
+
+        if not abierto:
+            continue
+
+        oferta = db.query(Oferta).filter(
+            Oferta.dueno_id == local.dueno_id
+        ).first()
+
+        resultados.append({
+            "nombre": local.nombre,
+            "categoria": local.categoria,
+            "latitud": local.latitud,
+            "longitud": local.longitud,
+            "oferta": {
+                "titulo": oferta.titulo,
+                "precio": oferta.precio,
+                "descripcion": oferta.descripcion,
+                "imagen_url": oferta.imagen_url
+            } if oferta else None
+        })
+
+    return resultados
