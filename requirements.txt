@@ -1,24 +1,19 @@
-fastapi
-uvicorn[standard]
+--force-reinstall
+--upgrade
+
+
+
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
 
 sqlalchemy==2.0.25
-psycopg2-binary
+psycopg2-binary==2.9.11
 
-passlib==1.7.4
+passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 
 PyJWT==2.8.0
-pytz
-email-validator
-python-multipart
-python-dotenv
-
-
-
-
-
-
-
-
-
-
+pytz==2025.2
+email-validator==2.3.0
+python-multipart==0.0.21
+python-dotenv==1.2.1
