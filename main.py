@@ -26,7 +26,7 @@ app = FastAPI(title="MapaLocal Backend")
 def startup():
     Base.metadata.create_all(bind=engine)
 
-oauth2 = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
 encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
 zona_chile = pytz.timezone("America/Santiago")
 
