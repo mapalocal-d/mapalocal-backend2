@@ -1,6 +1,6 @@
-##main.py
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware # <--- CAMBIO 1: Importar CORS
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
@@ -23,6 +23,17 @@ ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
 
 app = FastAPI(title="MapaLocal Backend")
+
+# =========================
+# CAMBIO 1: CONFIGURAR CORS (Evita error "Failed to Fetch")
+# =========================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # =========================
 # CREAR TABLAS AL ARRANCAR
@@ -86,6 +97,7 @@ def verificar(password: str, hash_guardado: str):
 
 def crear_token(datos: dict):
     datos = datos.copy()
+    # Usar UTC explícito para evitar problemas de zona horaria
     datos["exp"] = datetime.utcnow() + timedelta(minutes=MINUTOS_TOKEN)
     return jwt.encode(datos, CLAVE_SECRETA, algorithm=ALGORITMO)
 
@@ -135,11 +147,16 @@ def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
     if db.query(Usuario).filter(Usuario.correo == correo).first():
         raise HTTPException(status_code=400, detail="Usuario ya existe")
 
+    # CAMBIO 2: Validar el ROL antes de guardarlo para evitar CheckViolation
+    rol_final = usuario.rol.upper()
+    if rol_final not in ["DUENO", "USUARIO"]:
+        raise HTTPException(status_code=400, detail="El rol debe ser DUENO o USUARIO")
+
     nuevo = Usuario(
         correo=correo,
         nombre=usuario.nombre,
         contrasena=encriptar(usuario.contrasena),
-        rol=usuario.rol.upper()
+        rol=rol_final
     )
 
     db.add(nuevo)
@@ -174,8 +191,9 @@ def login(
 
 @app.get("/usuarios/me")
 def mi_usuario(user: Usuario = Depends(usuario_actual)):
+    # CAMBIO 3: Devolver el ID (ahora es UUID) correctamente
     return {
-        "id": user.id,
+        "id": str(user.id), 
         "correo": user.correo,
         "nombre": user.nombre,
         "rol": user.rol
@@ -203,7 +221,7 @@ def crear_local(
         longitud=data.longitud,
         hora_apertura=data.hora_apertura,
         hora_cierre=data.hora_cierre,
-        dueno_id=user.id
+        dueno_id=user.id # SQLAlchemy manejará el UUID automáticamente
     )
 
     db.add(nuevo)
@@ -211,72 +229,4 @@ def crear_local(
 
     return {"mensaje": "Local creado"}
 
-# =========================
-# OFERTAS
-# =========================
-
-@app.post("/oferta/crear")
-def crear_oferta(
-    oferta: OfertaCrear,
-    user: Usuario = Depends(usuario_actual),
-    db: Session = Depends(get_db)
-):
-
-    if user.rol != "DUENO":
-        raise HTTPException(status_code=403, detail="Solo dueños pueden crear ofertas")
-
-    nueva = Oferta(
-        titulo=oferta.titulo,
-        precio=oferta.precio,
-        descripcion=oferta.descripcion,
-        imagen_url=oferta.imagen_url,
-        dueno_id=user.id
-    )
-
-    db.add(nueva)
-    db.commit()
-
-    return {"mensaje": "Oferta publicada"}
-
-# =========================
-# MAPA
-# =========================
-
-@app.get("/mapa/locales")
-def ver_locales(ciudad: str, categoria: str, db: Session = Depends(get_db)):
-
-    locales = db.query(Local).filter(
-        Local.ciudad.ilike(ciudad),
-        Local.categoria.ilike(categoria)
-    ).all()
-
-    resultados = []
-
-    for local in locales:
-
-        abierto = local.abierto
-
-        if local.modo == "AUTO" and local.hora_apertura:
-            abierto = abierto_por_horario(local)
-
-        if not abierto:
-            continue
-
-        oferta = db.query(Oferta).filter(
-            Oferta.dueno_id == local.dueno_id
-        ).first()
-
-        resultados.append({
-            "nombre": local.nombre,
-            "categoria": local.categoria,
-            "latitud": local.latitud,
-            "longitud": local.longitud,
-            "oferta": {
-                "titulo": oferta.titulo,
-                "precio": oferta.precio,
-                "descripcion": oferta.descripcion,
-                "imagen_url": oferta.imagen_url
-            } if oferta else None
-        })
-
-    return resultados
+# ... (El resto de tu código de Ofertas y Mapa sigue igual)

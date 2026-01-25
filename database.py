@@ -1,4 +1,3 @@
-#database.py
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -6,20 +5,30 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./mapalocal.db"
-)
+# Obtenemos la URL de la base de datos
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Detectar si es SQLite
+# Si no hay URL (en local), usamos SQLite por defecto
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./mapalocal.db"
+
+# Si usamos PostgreSQL (Supabase), corregimos el prefijo si es necesario
+# (Algunas librerías requieren postgresql:// en lugar de postgres://)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Configuración de argumentos de conexión
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
+# Creamos el motor con pool_pre_ping para evitar desconexiones
 engine = create_engine(
     DATABASE_URL,
     echo=False,
-    connect_args=connect_args
+    connect_args=connect_args,
+    pool_pre_ping=True,  # <--- Verifica si la conexión sigue viva antes de usarla
+    pool_recycle=300     # <--- Reinicia conexiones cada 5 minutos
 )
 
 SessionLocal = sessionmaker(

@@ -1,14 +1,18 @@
 ## models.py
+
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID # Necesario para Postgres/Supabase
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import uuid # Para generar IDs automáticos
 
 from database import Base
 
 class Usuario(Base):
     __tablename__ = "usuarios"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # Usamos UUID para que coincida con el estándar de Supabase y sea seguro
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     correo = Column(String, unique=True, index=True, nullable=False)
     nombre = Column(String, nullable=False)
     contrasena = Column(String, nullable=False)
@@ -32,7 +36,8 @@ class Local(Base):
     modo = Column(String, default="AUTO")
     abierto = Column(Integer, default=0)
 
-    dueno_id = Column(Integer, ForeignKey("usuarios.id"))
+    # Este campo DEBE ser UUID para que la clave extranjera funcione con Usuario.id
+    dueno_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id"))
     dueno = relationship("Usuario", back_populates="locales")
 
 
@@ -46,4 +51,5 @@ class Oferta(Base):
     imagen_url = Column(String)
     creada_en = Column(DateTime, default=datetime.utcnow)
 
-    dueno_id = Column(Integer, ForeignKey("usuarios.id"))
+    # Aquí también usamos UUID para mantener la consistencia
+    dueno_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id"))
