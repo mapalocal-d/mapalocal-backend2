@@ -139,3 +139,18 @@ def login(
 
     token = crear_token({"sub": usuario.correo, "rol": usuario.rol})
     return {"access_token": token, "token_type": "bearer"}
+
+
+
+
+# =========================
+# TEST PROTEGIDO
+# =========================
+@app.get("/usuarios/me")
+def leer_usuario_actual(user: Usuario = Depends(usuario_actual)):
+    return {
+        "id": user.id,
+        "correo": user.correo,
+        "nombre": user.nombre,
+        "rol": user.rol
+    }
