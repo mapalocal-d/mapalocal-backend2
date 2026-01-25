@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.middleware.cors import CORSMiddleware # <--- CAMBIO 1: Importar CORS
+from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import jwt
 import pytz
 import os
@@ -18,15 +18,12 @@ from models import Usuario, Local, Oferta
 # CONFIGURACIÓN
 # =========================
 
-CLAVE_SECRETA = os.getenv("SECRET_KEY", "MAPALOCAL_CAMBIAR_LUEGO")
+CLAVE_SECRETA = os.getenv("SECRET_KEY", "MAPALOCAL_2026_KEY")
 ALGORITMO = "HS256"
 MINUTOS_TOKEN = 60 * 24
 
 app = FastAPI(title="MapaLocal Backend")
 
-# =========================
-# CAMBIO 1: CONFIGURAR CORS (Evita error "Failed to Fetch")
-# =========================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -52,20 +49,18 @@ encriptador = CryptContext(schemes=["bcrypt"], deprecated="auto")
 zona_chile = pytz.timezone("America/Santiago")
 
 # =========================
-# MODELOS Pydantic
+# MODELOS Pydantic (Validación de datos)
 # =========================
 
 class UsuarioRegistro(BaseModel):
     correo: EmailStr
     nombre: str
     contrasena: str
-    rol: str   # DUENO / USUARIO
-
+    rol: str
 
 class Token(BaseModel):
     access_token: str
     token_type: str
-
 
 class LocalCrear(BaseModel):
     nombre: str
@@ -73,15 +68,16 @@ class LocalCrear(BaseModel):
     ciudad: str
     latitud: float
     longitud: float
-    hora_apertura: Optional[str] = None
-    hora_cierre: Optional[str] = None
-
+    hora_apertura: Optional[str] = "09:00"
+    hora_cierre: Optional[str] = "20:00"
+    whatsapp: Optional[str] = None # <-- ARREGLADO: Ahora puedes enviar el número
 
 class OfertaCrear(BaseModel):
     titulo: str
     precio: str
     descripcion: Optional[str] = None
     imagen_url: Optional[str] = None
+    local_id: int # <-- ARREGLADO: Obligatorio para conectar con el local
 
 # =========================
 # UTILIDADES
@@ -90,41 +86,24 @@ class OfertaCrear(BaseModel):
 def encriptar(password: str):
     return encriptador.hash(password[:72])
 
-
 def verificar(password: str, hash_guardado: str):
     return encriptador.verify(password[:72], hash_guardado)
 
-
 def crear_token(datos: dict):
     datos = datos.copy()
-    # Usar UTC explícito para evitar problemas de zona horaria
     datos["exp"] = datetime.utcnow() + timedelta(minutes=MINUTOS_TOKEN)
     return jwt.encode(datos, CLAVE_SECRETA, algorithm=ALGORITMO)
 
-
-def usuario_actual(
-    token: str = Depends(oauth2),
-    db: Session = Depends(get_db)
-):
+def usuario_actual(token: str = Depends(oauth2), db: Session = Depends(get_db)):
     try:
         datos = jwt.decode(token, CLAVE_SECRETA, algorithms=[ALGORITMO])
         correo = datos.get("sub")
-
-        usuario = db.query(Usuario).filter(
-            Usuario.correo == correo
-        ).first()
-
+        usuario = db.query(Usuario).filter(Usuario.correo == correo).first()
         if not usuario:
             raise HTTPException(status_code=401, detail="Token inválido")
-
         return usuario
-
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expirado")
-
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token inválido")
-
+    except:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
 
 def abierto_por_horario(local: Local):
     try:
@@ -141,16 +120,13 @@ def abierto_por_horario(local: Local):
 
 @app.post("/auth/registro")
 def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
-
     correo = usuario.correo.lower()
-
     if db.query(Usuario).filter(Usuario.correo == correo).first():
         raise HTTPException(status_code=400, detail="Usuario ya existe")
 
-    # CAMBIO 2: Validar el ROL antes de guardarlo para evitar CheckViolation
     rol_final = usuario.rol.upper()
     if rol_final not in ["DUENO", "USUARIO"]:
-        raise HTTPException(status_code=400, detail="El rol debe ser DUENO o USUARIO")
+        raise HTTPException(status_code=400, detail="Rol inválido")
 
     nuevo = Usuario(
         correo=correo,
@@ -158,75 +134,82 @@ def registro(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
         contrasena=encriptar(usuario.contrasena),
         rol=rol_final
     )
-
     db.add(nuevo)
     db.commit()
-
     return {"mensaje": "Usuario creado correctamente"}
 
-
 @app.post("/auth/login", response_model=Token)
-def login(
-    form: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-
-    usuario = db.query(Usuario).filter(
-        Usuario.correo == form.username.lower()
-    ).first()
-
+def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.correo == form.username.lower()).first()
     if not usuario or not verificar(form.password, usuario.contrasena):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    token = crear_token({
-        "sub": usuario.correo,
-        "rol": usuario.rol
-    })
-
+    token = crear_token({"sub": usuario.correo, "rol": usuario.rol})
     return {"access_token": token, "token_type": "bearer"}
 
 # =========================
-# USUARIO LOGUEADO
-# =========================
-
-@app.get("/usuarios/me")
-def mi_usuario(user: Usuario = Depends(usuario_actual)):
-    # CAMBIO 3: Devolver el ID (ahora es UUID) correctamente
-    return {
-        "id": str(user.id), 
-        "correo": user.correo,
-        "nombre": user.nombre,
-        "rol": user.rol
-    }
-
-# =========================
-# LOCALES
+# LOCALES Y OFERTAS
 # =========================
 
 @app.post("/local/crear")
-def crear_local(
-    data: LocalCrear,
-    user: Usuario = Depends(usuario_actual),
-    db: Session = Depends(get_db)
-):
-
+def crear_local(data: LocalCrear, user: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
     if user.rol != "DUENO":
-        raise HTTPException(status_code=403, detail="Solo dueños pueden crear locales")
+        raise HTTPException(status_code=403, detail="Acceso denegado")
 
-    nuevo = Local(
-        nombre=data.nombre,
-        categoria=data.categoria,
-        ciudad=data.ciudad,
-        latitud=data.latitud,
-        longitud=data.longitud,
-        hora_apertura=data.hora_apertura,
-        hora_cierre=data.hora_cierre,
-        dueno_id=user.id # SQLAlchemy manejará el UUID automáticamente
-    )
-
+    nuevo = Local(**data.dict(), dueno_id=user.id)
     db.add(nuevo)
     db.commit()
-
     return {"mensaje": "Local creado"}
 
-# ... (El resto de tu código de Ofertas y Mapa sigue igual)
+@app.post("/oferta/crear")
+def crear_oferta(oferta: OfertaCrear, user: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)):
+    if user.rol != "DUENO":
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    # Verificar que el local pertenezca al dueño
+    local = db.query(Local).filter(Local.id == oferta.local_id, Local.dueno_id == user.id).first()
+    if not local:
+        raise HTTPException(status_code=404, detail="El local no existe o no te pertenece")
+
+    # Limpiamos ofertas anteriores de este local específico
+    db.query(Oferta).filter(Oferta.local_id == oferta.local_id).delete()
+    
+    nueva = Oferta(**oferta.dict(), dueno_id=user.id)
+    db.add(nueva)
+    db.commit()
+    return {"mensaje": "Oferta publicada correctamente"}
+
+# =========================
+# MAPA (VISIÓN PARA CLIENTES)
+# =========================
+
+@app.get("/mapa/locales")
+def ver_locales(ciudad: str, db: Session = Depends(get_db)):
+    locales = db.query(Local).filter(Local.ciudad.ilike(f"%{ciudad}%")).all()
+    resultados = []
+
+    for local in locales:
+        # Estado de apertura
+        abierto = abierto_por_horario(local) if local.modo == "AUTO" else (local.abierto == 1)
+
+        # Buscar la oferta de este local específico
+        oferta = db.query(Oferta).filter(Oferta.local_id == local.id).first()
+
+        resultados.append({
+            "id": local.id,
+            "nombre": local.nombre,
+            "categoria": local.categoria,
+            "abierto_ahora": abierto,
+            "coords": {"lat": local.latitud, "lng": local.longitud},
+            "links": {
+                "google_maps": f"https://www.google.com/maps/search/?api=1&query={local.latitud},{local.longitud}",
+                "whatsapp": f"https://wa.me/{local.whatsapp}" if local.whatsapp else None
+            },
+            "oferta": {
+                "titulo": oferta.titulo,
+                "precio": oferta.precio,
+                "descripcion": oferta.descripcion
+            } if oferta else None
+        })
+
+    return resultados

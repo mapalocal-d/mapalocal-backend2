@@ -1,17 +1,13 @@
-## models.py
-
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID # Necesario para Postgres/Supabase
+from sqlalchemy.dialects.postgresql import UUID 
 from sqlalchemy.orm import relationship
 from datetime import datetime
-import uuid # Para generar IDs automáticos
+import uuid 
 
 from database import Base
 
 class Usuario(Base):
     __tablename__ = "usuarios"
-
-    # Usamos UUID para que coincida con el estándar de Supabase y sea seguro
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     correo = Column(String, unique=True, index=True, nullable=False)
     nombre = Column(String, nullable=False)
@@ -24,7 +20,6 @@ class Usuario(Base):
 
 class Local(Base):
     __tablename__ = "locales"
-
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
     categoria = Column(String, nullable=False)
@@ -33,17 +28,19 @@ class Local(Base):
     longitud = Column(Float, nullable=False)
     hora_apertura = Column(String)
     hora_cierre = Column(String)
+    whatsapp = Column(String) # <-- AGREGADO: Para que el cliente te contacte
     modo = Column(String, default="AUTO")
-    abierto = Column(Integer, default=0)
+    abierto = Column(Integer, default=1) # 1 para abierto, 0 para cerrado
 
-    # Este campo DEBE ser UUID para que la clave extranjera funcione con Usuario.id
     dueno_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id"))
     dueno = relationship("Usuario", back_populates="locales")
+    
+    # Relación para encontrar las ofertas de este local específico
+    ofertas = relationship("Oferta", back_populates="local")
 
 
 class Oferta(Base):
     __tablename__ = "ofertas"
-
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String, nullable=False)
     precio = Column(String, nullable=False)
@@ -51,5 +48,8 @@ class Oferta(Base):
     imagen_url = Column(String)
     creada_en = Column(DateTime, default=datetime.utcnow)
 
-    # Aquí también usamos UUID para mantener la consistencia
+    # CAMBIO: Conectamos la oferta al Local directamente
+    local_id = Column(Integer, ForeignKey("locales.id"))
+    local = relationship("Local", back_populates="ofertas")
+    
     dueno_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id"))
