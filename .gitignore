@@ -6,6 +6,11 @@ __pycache__/
 venv/
 .env
 
+# Base de datos local (AGREGA ESTO)
+*.db
+mapalocal.db
+test.db
+
 # VS Code
 .vscode/
 
