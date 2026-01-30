@@ -1,18 +1,44 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# Entornos virtuales
+# Entornos virtuales y variables de entorno
 venv/
 .env
+.env.*
 
-# Base de datos local (AGREGA ESTO)
+# Base de datos local
 *.db
+*.sqlite
 mapalocal.db
 test.db
 
-# VS Code
-.vscode/
+# Alembic (caches y compilados)
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
 
-# Sistema
+# Logs
+*.log
+logs/
+
+# Coverage / Testing
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Build / Distribución
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDEs / Editores
+.vscode/
+.idea/
+
+# Archivos de sistema
 .DS_Store
+Thumbs.db

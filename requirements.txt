@@ -1,13 +1,41 @@
+# Core API framework
 fastapi==0.128.0
-uvicorn==0.40.0
+uvicorn[standard]==0.29.0  # includes uvloop, httptools, websockets, watchfiles for better performance
+
+# Database
 sqlalchemy==2.0.25
 psycopg2-binary==2.9.11
+alembic==1.11.1
+
+# Auth and security
 passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
 PyJWT==2.8.0
-python-multipart==0.0.21
-pillow==10.2.0
-mercadopago==2.3.0
-pytz==2025.2
 email-validator==2.3.0
-python-dotenv==1.2.1
+
+# File uploads and images
+python-multipart==0.0.21
+Pillow==10.2.0
+
+# Payments and external services
+mercadopago==2.3.0
+cloudinary==1.41.0
 requests==2.32.3
+
+# Timezones and env config
+pytz==2024.1        # 2025.2 no existe; usa una versión estable soportada
+python-dotenv==1.2.1
+
+# Phone number normalization (crítico para producción según el main)
+phonenumbers==8.13.30
+
+# Email sending (staging/production)
+fastapi-mail==1.4.1
+
+# Optional rate limiting (used if available in main)
+fastapi-limiter>=0.1.5
+redis==5.0.1
+
+# Testing
+pytest==7.4.0
+httpx==0.24.1
