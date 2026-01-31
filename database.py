@@ -9,7 +9,10 @@ load_dotenv()
 # DATABASE URL
 # =====================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql+psycopg2://postgres.kbllizenngnezwhlbcww:miprimerproyecto@aws-1-us-east-2.pooler.supabase.com:5432/postgres"
+).strip()
 
 if not DATABASE_URL:
     # Fallback seguro para desarrollo: SQLite en archivo local
