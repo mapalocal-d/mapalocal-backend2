@@ -49,7 +49,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from database import get_db, engine, Base
-from models import Usuario, Local, Oferta, Favorito, Resena, JobOffer, PaymentEvent, PasswordReset, AnalyticsEvent
+from models import Usuario, Local, Oferta, Favorito, Resena, JobOffer, PaymentEvent, PasswordReset,AnalyticsEvent
 
 # Opcional: Pillow y phonenumbers (exigidos en startup para producción segura)
 try:
