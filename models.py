@@ -38,9 +38,9 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4, index=True)
-    correo = Column(String, unique=True, index=True, nullable=False)
+    # unique=True ya crea un índice único; no necesitas index=True adicional
+    correo = Column(String, unique=True, nullable=False)
     nombre = Column(String, nullable=False)
-    contrasena = Column(String, nullable=False)
     # Main espera roles "USUARIO" | "DUENO"
     rol = Column(String, default="USUARIO", index=True)
     creado_en = Column(DateTime, default=datetime.utcnow)
@@ -96,10 +96,12 @@ class Local(Base):
     job_offers = relationship("JobOffer", back_populates="local", cascade="all, delete", passive_deletes=True)
 
     __table_args__ = (
-        Index("ix_locales_ciudad", "ciudad"),
+        # Mantener índices explícitos donde NO hay index=True en columna
         Index("ix_locales_tipo", "tipo"),
         Index("ix_locales_categoria", "categoria"),
+        # Índice compuesto recomendado para filtros por plan/vencimiento
         Index("ix_locales_pago_venc", "pago_al_dia", "fecha_vencimiento"),
+        # OJO: removido Index("ix_locales_ciudad", "ciudad") para evitar duplicado con ciudad index=True
     )
 
 # =====================================================
@@ -202,11 +204,10 @@ class JobOffer(Base):
     dueno = relationship("Usuario", back_populates="jobs")
 
     __table_args__ = (
-        Index("ix_job_offers_categoria", "categoria"),
-        Index("ix_job_offers_fecha_fin", "fecha_fin"),
-        Index("ix_job_offers_dueno_id", "dueno_id"),
-        Index("ix_job_offers_local_id", "local_id"),
+        # Mantén solo el índice compuesto necesario para consultas por activa+ciudad
         Index("ix_job_offers_activa_ciudad", "activa", "ciudad"),
+        # Removidos los índices de una columna con nombre explícito (categoria, fecha_fin, dueno_id, local_id)
+        # porque ya existen vía index=True en las columnas y causaban duplicados al crear.
     )
 
 # =====================================================
@@ -217,9 +218,30 @@ class PaymentEvent(Base):
     __tablename__ = "payment_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    payment_id = Column(String(255), nullable=False, unique=True, index=True)
+    # unique=True ya impone unicidad; quita index=True para evitar índice redundante
+    payment_id = Column(String(255), nullable=False, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Removido Index explícito duplicado: rely en unique=True
+
+# =====================================================
+# ANALYTICS EVENTS
+# =====================================================
+
+class AnalyticsEvent(Base):
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    local_id = Column(Integer, ForeignKey("locales.id"), nullable=True, index=True)
+    usuario_id = Column(GUID(), ForeignKey("usuarios.id"), nullable=True, index=True)
+
+    # tipo de evento: "view_profile", "click_whatsapp", etc.
+    tipo = Column(String(120), nullable=False, index=True)
+    ip = Column(String(120), nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
     __table_args__ = (
-        Index("ix_payment_events_payment_id", "payment_id", unique=True),
+        # Índice compuesto recomendado para consultas por local y orden temporal
+        Index("ix_analytics_events_local_created", "local_id", "created_at"),
     )
